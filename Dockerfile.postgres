@@ -1,0 +1,6 @@
+FROM postgres:16-alpine
+
+ENV POSTGRES_DB=lobby_hack
+ENV POSTGRES_USER=postgres
+
+EXPOSE 5432

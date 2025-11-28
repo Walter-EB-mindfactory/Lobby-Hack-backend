@@ -1,0 +1,49 @@
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: lobby-hack-db
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile.postgres
+    disk:
+      name: lobby-hack-db-data
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
+
+  # NestJS Backend
+  - type: web
+    name: lobby-hack-backend
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_HOST
+        fromService:
+          type: pserv
+          name: lobby-hack-db
+          property: host
+      - key: DATABASE_PORT
+        value: 5432
+      - key: DATABASE_USER
+        value: postgres
+      - key: DATABASE_PASSWORD
+        generateValue: true
+      - key: DATABASE_NAME
+        value: lobby_hack
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+    healthCheckPath: /api
