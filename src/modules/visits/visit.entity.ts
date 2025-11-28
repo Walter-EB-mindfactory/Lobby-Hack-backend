@@ -62,6 +62,12 @@ export class Visit {
   @Column({ nullable: true })
   notes: string;
 
+  @Column({ nullable: true })
+  googleCalendarEventId: string;
+
+  @Column({ nullable: true })
+  location: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
