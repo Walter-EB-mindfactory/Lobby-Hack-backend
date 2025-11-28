@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { VisitsService } from './visits.service';
+import { UsersService } from '../users/users.service';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { UpdateVisitDto } from './dto/update-visit.dto';
 import { CheckinDto } from './dto/checkin.dto';
@@ -28,7 +29,7 @@ import { VisitStatus } from '../../common/enums/visit-status.enum';
 export class VisitsController {
   constructor(
     private readonly visitsService: VisitsService,
-    private readonly usersService: any, // Import UsersService
+    private readonly usersService: UsersService,
   ) {}
 
   @Post()
@@ -38,15 +39,9 @@ export class VisitsController {
   async create(@Body() createVisitDto: CreateVisitDto, @CurrentUser() user: any) {
     // If authorizerEmail provided, find user by email
     if (createVisitDto.authorizerEmail && !createVisitDto.authorizedById) {
-      try {
-        const { UsersService } = await import('../users/users.service');
-        const usersService = new UsersService(null);
-        const authorizer = await usersService.findByEmail(createVisitDto.authorizerEmail);
-        if (authorizer) {
-          createVisitDto.authorizedById = authorizer.id;
-        }
-      } catch (error) {
-        // If user not found, continue without authorizer
+      const authorizer = await this.usersService.findByEmail(createVisitDto.authorizerEmail);
+      if (authorizer) {
+        createVisitDto.authorizedById = authorizer.id;
       }
     }
     return this.visitsService.create(createVisitDto, user.id);
