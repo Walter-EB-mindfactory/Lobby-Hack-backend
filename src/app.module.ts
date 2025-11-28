@@ -6,7 +6,6 @@ import { UsersModule } from './modules/users/users.module';
 import { VisitsModule } from './modules/visits/visits.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { ReportsModule } from './modules/reports/reports.module';
-import { TestModule } from './modules/test/test.module';
 
 @Module({
   imports: [
@@ -42,7 +41,6 @@ import { TestModule } from './modules/test/test.module';
     VisitsModule,
     CalendarModule,
     ReportsModule,
-    TestModule,
   ],
 })
 export class AppModule {}
