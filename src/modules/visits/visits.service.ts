@@ -1,0 +1,177 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Visit } from './visit.entity';
+import { AuditLog } from './audit-log.entity';
+import { CreateVisitDto } from './dto/create-visit.dto';
+import { UpdateVisitDto } from './dto/update-visit.dto';
+import { VisitStatus } from '../../common/enums/visit-status.enum';
+
+@Injectable()
+export class VisitsService {
+  constructor(
+    @InjectRepository(Visit)
+    private visitsRepository: Repository<Visit>,
+    @InjectRepository(AuditLog)
+    private auditLogRepository: Repository<AuditLog>,
+  ) {}
+
+  async create(createVisitDto: CreateVisitDto, userId?: string): Promise<Visit> {
+    const visit = this.visitsRepository.create(createVisitDto);
+    const savedVisit = await this.visitsRepository.save(visit);
+
+    await this.createAuditLog('CREATE_VISIT', userId, 'Visit', savedVisit.id, {
+      visitorName: savedVisit.visitorName,
+      dni: savedVisit.dni,
+    });
+
+    return savedVisit;
+  }
+
+  async findAll(filters?: {
+    status?: VisitStatus;
+    programada?: boolean;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<Visit[]> {
+    const query = this.visitsRepository
+      .createQueryBuilder('visit')
+      .leftJoinAndSelect('visit.authorizer', 'authorizer');
+
+    if (filters?.status) {
+      query.andWhere('visit.status = :status', { status: filters.status });
+    }
+
+    if (filters?.programada !== undefined) {
+      query.andWhere('visit.programada = :programada', { programada: filters.programada });
+    }
+
+    if (filters?.startDate && filters?.endDate) {
+      query.andWhere('visit.scheduledDate BETWEEN :startDate AND :endDate', {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+      });
+    }
+
+    return query.orderBy('visit.createdAt', 'DESC').getMany();
+  }
+
+  async findOne(id: string): Promise<Visit> {
+    const visit = await this.visitsRepository.findOne({
+      where: { id },
+      relations: ['authorizer'],
+    });
+
+    if (!visit) {
+      throw new NotFoundException(`Visit with ID ${id} not found`);
+    }
+
+    return visit;
+  }
+
+  async update(id: string, updateVisitDto: UpdateVisitDto, userId?: string): Promise<Visit> {
+    const visit = await this.findOne(id);
+
+    Object.assign(visit, updateVisitDto);
+    const updatedVisit = await this.visitsRepository.save(visit);
+
+    await this.createAuditLog('UPDATE_VISIT', userId, 'Visit', id, updateVisitDto);
+
+    return updatedVisit;
+  }
+
+  async checkin(id: string, userId?: string): Promise<Visit> {
+    const visit = await this.findOne(id);
+
+    if (visit.status === VisitStatus.COMPLETED) {
+      throw new Error('Visit already completed');
+    }
+
+    visit.checkinTime = new Date();
+    visit.status = VisitStatus.IN_PROGRESS;
+
+    const updatedVisit = await this.visitsRepository.save(visit);
+
+    await this.createAuditLog('CHECKIN_VISIT', userId, 'Visit', id, {
+      checkinTime: visit.checkinTime,
+    });
+
+    return updatedVisit;
+  }
+
+  async checkout(id: string, userId?: string): Promise<Visit> {
+    const visit = await this.findOne(id);
+
+    if (!visit.checkinTime) {
+      throw new Error('Visit must be checked in first');
+    }
+
+    visit.checkoutTime = new Date();
+    visit.status = VisitStatus.COMPLETED;
+
+    const updatedVisit = await this.visitsRepository.save(visit);
+
+    await this.createAuditLog('CHECKOUT_VISIT', userId, 'Visit', id, {
+      checkoutTime: visit.checkoutTime,
+    });
+
+    return updatedVisit;
+  }
+
+  async remove(id: string, userId?: string): Promise<void> {
+    const visit = await this.findOne(id);
+
+    await this.createAuditLog('DELETE_VISIT', userId, 'Visit', id, {
+      visitorName: visit.visitorName,
+      dni: visit.dni,
+    });
+
+    await this.visitsRepository.remove(visit);
+  }
+
+  private async createAuditLog(
+    action: string,
+    userId: string,
+    entityType: string,
+    entityId: string,
+    details: any,
+  ): Promise<void> {
+    const auditLog = this.auditLogRepository.create({
+      action,
+      userId,
+      entityType,
+      entityId,
+      details,
+    });
+
+    await this.auditLogRepository.save(auditLog);
+  }
+
+  async getAuditLogs(filters?: {
+    entityType?: string;
+    entityId?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<AuditLog[]> {
+    const query = this.auditLogRepository
+      .createQueryBuilder('log')
+      .leftJoinAndSelect('log.user', 'user');
+
+    if (filters?.entityType) {
+      query.andWhere('log.entityType = :entityType', { entityType: filters.entityType });
+    }
+
+    if (filters?.entityId) {
+      query.andWhere('log.entityId = :entityId', { entityId: filters.entityId });
+    }
+
+    if (filters?.startDate && filters?.endDate) {
+      query.andWhere('log.timestamp BETWEEN :startDate AND :endDate', {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+      });
+    }
+
+    return query.orderBy('log.timestamp', 'DESC').getMany();
+  }
+}
