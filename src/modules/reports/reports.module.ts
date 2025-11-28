@@ -4,9 +4,10 @@ import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
 import { Visit } from '../visits/visit.entity';
 import { AuditLog } from '../visits/audit-log.entity';
+import { User } from '../users/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Visit, AuditLog])],
+  imports: [TypeOrmModule.forFeature([Visit, AuditLog, User])],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

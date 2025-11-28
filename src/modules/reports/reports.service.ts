@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, FindOptionsWhere } from 'typeorm';
 import { Visit } from '../visits/visit.entity';
 import { AuditLog } from '../visits/audit-log.entity';
+import { User } from '../users/user.entity';
 import { VisitStatus } from '../../common/enums/visit-status.enum';
+import { VisitsReportQueryDto } from './dto/visits-report-query.dto';
+import { StatsQueryDto } from './dto/stats-query.dto';
 import { register, Counter, Gauge, Histogram } from 'prom-client';
 
 @Injectable()
@@ -17,6 +20,8 @@ export class ReportsService {
     private visitsRepository: Repository<Visit>,
     @InjectRepository(AuditLog)
     private auditLogRepository: Repository<AuditLog>,
+    @InjectRepository(User)
+    private usersRepository: Repository<User>,
   ) {
     // Initialize Prometheus metrics
     this.visitsCounter = new Counter({
@@ -193,5 +198,200 @@ export class ReportsService {
   async getMetrics() {
     await this.updateMetrics();
     return register.metrics();
+  }
+
+  async getVisitsReport(query: VisitsReportQueryDto) {
+    const {
+      startDate,
+      endDate,
+      authorizerEmail,
+      status,
+      programada,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      order = 'DESC',
+    } = query;
+
+    // Build where clause
+    const where: FindOptionsWhere<Visit> = {};
+
+    if (startDate && endDate) {
+      where.createdAt = Between(new Date(startDate), new Date(endDate));
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (programada !== undefined) {
+      where.programada = programada;
+    }
+
+    // Query builder for complex filters
+    const queryBuilder = this.visitsRepository
+      .createQueryBuilder('visit')
+      .leftJoinAndSelect('visit.authorizer', 'authorizer');
+
+    if (startDate && endDate) {
+      queryBuilder.andWhere('visit.createdAt BETWEEN :startDate AND :endDate', {
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+      });
+    }
+
+    if (authorizerEmail) {
+      queryBuilder.andWhere('authorizer.email = :email', { email: authorizerEmail });
+    }
+
+    if (status) {
+      queryBuilder.andWhere('visit.status = :status', { status });
+    }
+
+    if (programada !== undefined) {
+      queryBuilder.andWhere('visit.programada = :programada', { programada });
+    }
+
+    // Pagination
+    const skip = (page - 1) * limit;
+
+    // Get total count
+    const total = await queryBuilder.getCount();
+
+    // Get paginated results with sorting
+    const validSortFields = ['createdAt', 'scheduledDate', 'checkinTime', 'visitorName'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+
+    const data = await queryBuilder
+      .orderBy(`visit.${sortField}`, order)
+      .skip(skip)
+      .take(limit)
+      .getMany();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getStats(query: StatsQueryDto) {
+    const startDate = query.startDate ? new Date(query.startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default: last 30 days
+    const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    // Get all visits in range
+    const visits = await this.visitsRepository.find({
+      where: {
+        createdAt: Between(startDate, endDate),
+      },
+      relations: ['authorizer'],
+    });
+
+    // Total visits
+    const totalVisits = visits.length;
+
+    // Visits by day
+    const visitsByDay = this.groupVisitsByDay(visits);
+
+    // By status
+    const byStatus = visits.reduce(
+      (acc, visit) => {
+        acc[visit.status] = (acc[visit.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    // By type (scheduled vs unexpected)
+    const byType = {
+      scheduled: visits.filter((v) => v.programada).length,
+      unexpected: visits.filter((v) => !v.programada).length,
+    };
+
+    // Average duration
+    const completedVisits = visits.filter((v) => v.checkinTime && v.checkoutTime);
+    let avgDurationHours = 0;
+
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const duration =
+          new Date(visit.checkoutTime).getTime() - new Date(visit.checkinTime).getTime();
+        return sum + duration;
+      }, 0);
+      avgDurationHours = totalDuration / completedVisits.length / (1000 * 60 * 60);
+    }
+
+    // Peak hours
+    const peakHours = this.calculatePeakHoursFromVisits(visits);
+
+    // Top authorizers
+    const authorizerStats = this.groupByAuthorizer(visits);
+
+    return {
+      totalVisits,
+      visitsByDay,
+      byStatus,
+      byType,
+      avgDurationHours: Math.round(avgDurationHours * 100) / 100,
+      peakHours,
+      topAuthorizers: authorizerStats.slice(0, 5),
+    };
+  }
+
+  private groupVisitsByDay(visits: Visit[]) {
+    const grouped = visits.reduce(
+      (acc, visit) => {
+        const date = new Date(visit.createdAt).toISOString().split('T')[0];
+        acc[date] = (acc[date] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    return Object.entries(grouped)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  private calculatePeakHoursFromVisits(visits: Visit[]) {
+    const hourCounts = visits.reduce(
+      (acc, visit) => {
+        if (visit.checkinTime) {
+          const hour = new Date(visit.checkinTime).getHours();
+          acc[hour] = (acc[hour] || 0) + 1;
+        }
+        return acc;
+      },
+      {} as Record<number, number>,
+    );
+
+    return Object.entries(hourCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([hour, count]) => ({ hour: parseInt(hour), count }));
+  }
+
+  private groupByAuthorizer(visits: Visit[]) {
+    const grouped = visits.reduce(
+      (acc, visit) => {
+        if (visit.authorizer) {
+          const key = visit.authorizer.email;
+          if (!acc[key]) {
+            acc[key] = {
+              email: visit.authorizer.email,
+              name: `${visit.authorizer.firstName || ''} ${visit.authorizer.lastName || ''}`.trim(),
+              count: 0,
+            };
+          }
+          acc[key].count++;
+        }
+        return acc;
+      },
+      {} as Record<string, { email: string; name: string; count: number }>,
+    );
+
+    return Object.values(grouped).sort((a, b) => b.count - a.count);
   }
 }
