@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@ne
 import { VisitsService } from './visits.service';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { UpdateVisitDto } from './dto/update-visit.dto';
+import { CheckinDto } from './dto/checkin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,6 +34,24 @@ export class VisitsController {
   @ApiResponse({ status: 201, description: 'Visit created successfully' })
   create(@Body() createVisitDto: CreateVisitDto, @CurrentUser() user: any) {
     return this.visitsService.create(createVisitDto, user.id);
+  }
+
+  @Get('today')
+  @Roles(UserRole.RECEPCIONISTA, UserRole.ADMIN, UserRole.AUTORIZANTE)
+  @ApiOperation({ summary: 'Get all visits for today (scheduled and unexpected)' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Today visits retrieved successfully',
+    schema: {
+      example: {
+        scheduled: [],
+        unexpected: [],
+        total: 0,
+      },
+    },
+  })
+  getTodayVisits() {
+    return this.visitsService.getTodayVisits();
   }
 
   @Get()
@@ -91,9 +110,35 @@ export class VisitsController {
     return this.visitsService.update(id, updateVisitDto, user.id);
   }
 
+  @Post('checkin')
+  @Roles(UserRole.RECEPCIONISTA, UserRole.ADMIN)
+  @ApiOperation({ 
+    summary: 'Check-in a visitor (scheduled or unexpected)',
+    description: 'Creates a new visit or checks-in an existing scheduled visit. Sends notification to authorizer.',
+  })
+  @ApiResponse({ 
+    status: 201, 
+    description: 'Visitor checked in successfully. Notification sent to authorizer.',
+    schema: {
+      example: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        visitorName: 'Juan Pérez',
+        dni: '12345678',
+        programada: false,
+        status: 'pending',
+        checkinTime: '2025-11-28T16:45:00.000Z',
+        notificationSent: true,
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid data' })
+  checkinVisitor(@Body() checkinDto: CheckinDto, @CurrentUser() user: any) {
+    return this.visitsService.checkinVisitor(checkinDto, user.id);
+  }
+
   @Post(':id/checkin')
   @Roles(UserRole.RECEPCIONISTA, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Check-in a visit' })
+  @ApiOperation({ summary: 'Check-in an existing scheduled visit by ID' })
   @ApiResponse({ status: 200, description: 'Visit checked in successfully' })
   @ApiResponse({ status: 404, description: 'Visit not found' })
   checkin(@Param('id') id: string, @CurrentUser() user: any) {

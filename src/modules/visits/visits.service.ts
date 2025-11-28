@@ -1,14 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between } from 'typeorm';
 import { Visit } from './visit.entity';
 import { AuditLog } from './audit-log.entity';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { UpdateVisitDto } from './dto/update-visit.dto';
+import { CheckinDto } from './dto/checkin.dto';
 import { VisitStatus } from '../../common/enums/visit-status.enum';
 
 @Injectable()
 export class VisitsService {
+  private readonly logger = new Logger(VisitsService.name);
+
   constructor(
     @InjectRepository(Visit)
     private visitsRepository: Repository<Visit>,
@@ -26,6 +29,44 @@ export class VisitsService {
     });
 
     return savedVisit;
+  }
+
+  async getTodayVisits(): Promise<{
+    scheduled: Visit[];
+    unexpected: Visit[];
+    total: number;
+  }> {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Visitas programadas para hoy
+    const scheduled = await this.visitsRepository.find({
+      where: {
+        programada: true,
+        scheduledDate: Between(startOfDay, endOfDay),
+      },
+      relations: ['authorizer'],
+      order: { scheduledDate: 'ASC' },
+    });
+
+    // Visitas inesperadas (check-in hoy)
+    const unexpected = await this.visitsRepository.find({
+      where: {
+        programada: false,
+        checkinTime: Between(startOfDay, endOfDay),
+      },
+      relations: ['authorizer'],
+      order: { checkinTime: 'DESC' },
+    });
+
+    return {
+      scheduled,
+      unexpected,
+      total: scheduled.length + unexpected.length,
+    };
   }
 
   async findAll(filters?: {
@@ -80,6 +121,68 @@ export class VisitsService {
     return updatedVisit;
   }
 
+  async checkinVisitor(checkinDto: CheckinDto, userId?: string): Promise<Visit & { notificationSent: boolean }> {
+    // Buscar si existe una visita programada con ese DNI para hoy
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    let visit = await this.visitsRepository.findOne({
+      where: {
+        dni: checkinDto.dni,
+        programada: true,
+        scheduledDate: Between(startOfDay, endOfDay),
+      },
+      relations: ['authorizer'],
+    });
+
+    let isProgrammed = false;
+
+    if (visit) {
+      // Visita programada encontrada - hacer check-in
+      isProgrammed = true;
+      visit.checkinTime = new Date();
+      visit.status = VisitStatus.PENDING; // Espera aprobación del autorizante
+      
+      this.logger.log(`Scheduled visit found for DNI ${checkinDto.dni}. Checking in.`);
+    } else {
+      // Visita inesperada - crear nueva visita
+      visit = this.visitsRepository.create({
+        ...checkinDto,
+        programada: false,
+        checkinTime: new Date(),
+        status: VisitStatus.PENDING, // Espera aprobación del autorizante
+      });
+
+      this.logger.log(`Unexpected visit for ${checkinDto.visitorName}. Creating new visit.`);
+    }
+
+    const savedVisit = await this.visitsRepository.save(visit);
+
+    // Registrar en audit log
+    await this.createAuditLog(
+      isProgrammed ? 'CHECKIN_SCHEDULED_VISIT' : 'CHECKIN_UNEXPECTED_VISIT',
+      userId,
+      'Visit',
+      savedVisit.id,
+      {
+        visitorName: savedVisit.visitorName,
+        dni: savedVisit.dni,
+        checkinTime: savedVisit.checkinTime,
+        isProgrammed,
+      },
+    );
+
+    // Enviar notificación al autorizante
+    const notificationSent = await this.sendNotificationToAuthorizer(savedVisit);
+
+    return {
+      ...savedVisit,
+      notificationSent,
+    };
+  }
+
   async checkin(id: string, userId?: string): Promise<Visit> {
     const visit = await this.findOne(id);
 
@@ -97,6 +200,28 @@ export class VisitsService {
     });
 
     return updatedVisit;
+  }
+
+  private async sendNotificationToAuthorizer(visit: Visit): Promise<boolean> {
+    try {
+      // TODO: Implementar envío de notificación real (email, push, webhook, etc.)
+      // Por ahora, solo logueamos
+      this.logger.log(
+        `📧 Notification sent to authorizer ${visit.authorizedById} for visitor ${visit.visitorName}`,
+      );
+      
+      // Simular envío exitoso
+      // En producción aquí iría:
+      // - Envío de email
+      // - Push notification
+      // - Webhook a sistema de terceros
+      // - etc.
+      
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send notification: ${error.message}`);
+      return false;
+    }
   }
 
   async checkout(id: string, userId?: string): Promise<Visit> {
