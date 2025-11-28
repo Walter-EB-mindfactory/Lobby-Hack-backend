@@ -24,7 +24,7 @@ import { TestModule } from './modules/test/test.module';
         password: configService.get('DB_PASSWORD'),
         database: configService.get('DB_DATABASE'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: configService.get('NODE_ENV') === 'development',
+        synchronize: true, // Always sync for hackathon - creates tables automatically
         logging: configService.get('NODE_ENV') === 'development',
         ssl: {
           rejectUnauthorized: false,
