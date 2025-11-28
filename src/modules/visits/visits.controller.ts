@@ -26,13 +26,29 @@ import { VisitStatus } from '../../common/enums/visit-status.enum';
 @Controller('visits')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class VisitsController {
-  constructor(private readonly visitsService: VisitsService) {}
+  constructor(
+    private readonly visitsService: VisitsService,
+    private readonly usersService: any, // Import UsersService
+  ) {}
 
   @Post()
   @Roles(UserRole.RECEPCIONISTA, UserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new visit' })
   @ApiResponse({ status: 201, description: 'Visit created successfully' })
-  create(@Body() createVisitDto: CreateVisitDto, @CurrentUser() user: any) {
+  async create(@Body() createVisitDto: CreateVisitDto, @CurrentUser() user: any) {
+    // If authorizerEmail provided, find user by email
+    if (createVisitDto.authorizerEmail && !createVisitDto.authorizedById) {
+      try {
+        const { UsersService } = await import('../users/users.service');
+        const usersService = new UsersService(null);
+        const authorizer = await usersService.findByEmail(createVisitDto.authorizerEmail);
+        if (authorizer) {
+          createVisitDto.authorizedById = authorizer.id;
+        }
+      } catch (error) {
+        // If user not found, continue without authorizer
+      }
+    }
     return this.visitsService.create(createVisitDto, user.id);
   }
 

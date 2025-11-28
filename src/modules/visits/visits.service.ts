@@ -20,7 +20,18 @@ export class VisitsService {
   ) {}
 
   async create(createVisitDto: CreateVisitDto, userId?: string): Promise<Visit> {
-    const visit = this.visitsRepository.create(createVisitDto);
+    // Normalize field names to match entity
+    const normalizedDto = {
+      ...createVisitDto,
+      phoneNumber: createVisitDto.phone,
+      scheduledDate: createVisitDto.scheduledAt,
+    };
+
+    // Remove fields that don't match entity
+    delete (normalizedDto as any).phone;
+    delete (normalizedDto as any).scheduledAt;
+
+    const visit = this.visitsRepository.create(normalizedDto);
     const savedVisit = await this.visitsRepository.save(visit);
 
     await this.createAuditLog('CREATE_VISIT', userId, 'Visit', savedVisit.id, {

@@ -1,5 +1,6 @@
 import { IsString, IsOptional, IsBoolean, IsDateString, IsEmail } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class CreateVisitDto {
   @ApiProperty({ example: 'Juan Pérez' })
@@ -18,7 +19,7 @@ export class CreateVisitDto {
   @ApiPropertyOptional({ example: '+54 11 1234-5678' })
   @IsOptional()
   @IsString()
-  phoneNumber?: string;
+  phone?: string;
 
   @ApiPropertyOptional({ example: 'visitor@example.com' })
   @IsOptional()
@@ -38,12 +39,17 @@ export class CreateVisitDto {
   @ApiPropertyOptional({ example: '2024-01-15T10:00:00Z' })
   @IsOptional()
   @IsDateString()
-  scheduledDate?: Date;
+  scheduledAt?: Date;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   authorizedById?: string;
+
+  @ApiPropertyOptional({ example: 'authorizer@example.com' })
+  @IsOptional()
+  @IsEmail()
+  authorizerEmail?: string;
 
   @ApiPropertyOptional({ example: 'Visitor debe traer laptop' })
   @IsOptional()
