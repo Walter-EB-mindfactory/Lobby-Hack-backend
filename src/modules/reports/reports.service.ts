@@ -394,4 +394,100 @@ export class ReportsService {
 
     return Object.values(grouped).sort((a, b) => b.count - a.count);
   }
+
+  async getSummary() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Get all visits from today
+    const todayVisits = await this.visitsRepository.find({
+      where: {
+        createdAt: Between(today, tomorrow),
+      },
+    });
+
+    // Total visits today
+    const totalToday = todayVisits.length;
+
+    // Calculate average duration of completed visits
+    const completedVisits = todayVisits.filter(
+      (v) => v.checkinTime && v.checkoutTime,
+    );
+
+    let avgDurationMinutes = 0;
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const duration =
+          new Date(visit.checkoutTime).getTime() -
+          new Date(visit.checkinTime).getTime();
+        return sum + duration;
+      }, 0);
+      avgDurationMinutes = Math.round(
+        totalDuration / completedVisits.length / (1000 * 60),
+      );
+    }
+
+    // Pending unexpected visits
+    const pendingUnexpected = todayVisits.filter(
+      (v) => !v.programada && v.status === VisitStatus.PENDING,
+    ).length;
+
+    // Visits by hour
+    const hourCounts: Record<number, number> = {};
+    todayVisits.forEach((visit) => {
+      if (visit.checkinTime) {
+        const hour = new Date(visit.checkinTime).getHours();
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+      }
+    });
+
+    const byHour = Object.entries(hourCounts)
+      .map(([hour, count]) => ({
+        hour: parseInt(hour),
+        count,
+      }))
+      .sort((a, b) => a.hour - b.hour);
+
+    return {
+      totalToday,
+      avgDurationMinutes,
+      pendingUnexpected,
+      byHour,
+    };
+  }
+
+  async getVisitsByStatus() {
+    const visits = await this.visitsRepository.find();
+
+    // Initialize result with all possible statuses
+    const result: Record<string, number> = {
+      PROGRAMADA: 0,
+      INGRESADA: 0,
+      FINALIZADA: 0,
+      PENDIENTE: 0,
+    };
+
+    visits.forEach((visit) => {
+      // Count programmed visits
+      if (visit.programada) {
+        result.PROGRAMADA += 1;
+      }
+
+      // Count by status
+      if (visit.status === VisitStatus.PENDING) {
+        result.PENDIENTE += 1;
+      } else if (
+        visit.status === VisitStatus.IN_PROGRESS ||
+        visit.status === VisitStatus.APPROVED
+      ) {
+        result.INGRESADA += 1;
+      } else if (visit.status === VisitStatus.COMPLETED) {
+        result.FINALIZADA += 1;
+      }
+    });
+
+    return result;
+  }
 }

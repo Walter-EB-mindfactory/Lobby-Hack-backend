@@ -21,10 +21,12 @@ async function bootstrap() {
     origin: configService.get('ALLOWED_ORIGINS')?.split(',') || [
       'http://localhost:4200',
       'http://localhost:3000',
+      'http://localhost:4201',
     ],
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['Authorization'],
   });
 
   // Global validation pipe

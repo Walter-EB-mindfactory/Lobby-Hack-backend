@@ -15,6 +15,56 @@ import { UserRole } from '../../common/enums/user-role.enum';
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
+  @Get('summary')
+  @Roles(UserRole.ADMIN, UserRole.AUTORIZANTE, UserRole.RECEPCIONISTA)
+  @ApiOperation({ 
+    summary: 'Get today summary statistics',
+    description: 'Returns summary of visits for the current day including total, average duration, pending unexpected, and visits by hour',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Summary retrieved successfully',
+    schema: {
+      example: {
+        totalToday: 24,
+        avgDurationMinutes: 37,
+        pendingUnexpected: 3,
+        byHour: [
+          { hour: 8, count: 2 },
+          { hour: 9, count: 4 },
+          { hour: 10, count: 6 },
+        ],
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing token' })
+  getSummary() {
+    return this.reportsService.getSummary();
+  }
+
+  @Get('visits-by-status')
+  @Roles(UserRole.ADMIN, UserRole.AUTORIZANTE, UserRole.RECEPCIONISTA)
+  @ApiOperation({ 
+    summary: 'Get visits count by status',
+    description: 'Returns count of visits grouped by status (PROGRAMADA, INGRESADA, FINALIZADA, PENDIENTE)',
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Visits by status retrieved successfully',
+    schema: {
+      example: {
+        PROGRAMADA: 8,
+        INGRESADA: 10,
+        FINALIZADA: 3,
+        PENDIENTE: 3,
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing token' })
+  getVisitsByStatus() {
+    return this.reportsService.getVisitsByStatus();
+  }
+
   @Get('visits')
   @Roles(UserRole.ADMIN, UserRole.AUTORIZANTE, UserRole.RECEPCIONISTA)
   @ApiOperation({ 
